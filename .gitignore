@@ -43,10 +43,13 @@ secrets.py
 
 # IDE
 .idea/
-# .vscode/  ← uncomment if you don't want to share VS Code settings
+.vscode/  # Ignore VS Code settings (uncommented)
 
 # Windows
 Thumbs.db
 
 # Ruff
 .ruff_cache/
+
+# Dependency lock files
+uv.lock
