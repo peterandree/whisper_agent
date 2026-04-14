@@ -16,6 +16,9 @@ dependencies = [
     "whisperx>=3.8.5",
 ]
 
+[project.scripts]
+whisper-agent = "main:main"
+
 [[tool.uv.index]]
 name = "pytorch-cu128"
 url = "https://download.pytorch.org/whl/cu128"

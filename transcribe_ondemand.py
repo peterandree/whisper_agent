@@ -17,6 +17,7 @@ from watchdog.events import FileSystemEventHandler
 import torch
 from faster_whisper import WhisperModel
 from datetime import datetime
+from whisperx.diarize import DiarizationPipeline
 
 warnings.filterwarnings("ignore", message="torchcodec is not installed correctly")
 warnings.filterwarnings("ignore", category=UserWarning, module="pyannote")
@@ -115,9 +116,7 @@ def transcribe(path: Path) -> str:
 
     # Phase 3: Diarize
     print("[+] Running speaker diarization...")
-    diarize_model = whisperx.diarize.DiarizationPipeline(
-        token=hf_token, device=device
-    )
+    diarize_model = DiarizationPipeline(token=hf_token, device=device)
     diarize_segments = diarize_model(audio)
     result = whisperx.assign_word_speakers(diarize_segments, result)
 
@@ -190,7 +189,7 @@ def _call_ollama(prompt: str) -> str:
         "prompt": prompt,
         "stream": False,
         "options": {
-            "num_ctx": 32768   # 32k covers ~2-hour meetings with headroom
+            "num_ctx": 16384  #  32768 = 32k covers ~2-hour meetings with headroom
         }
     }
     response = requests.post(OLLAMA_URL, json=payload, timeout=600)
@@ -215,6 +214,8 @@ def process(path: Path):
         out_file.write_text(summary, encoding="utf-8")
         print(f"[+] Summary written to: {out_file}")
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         print(f"[!] Failed to process {path.name}: {e}", file=sys.stderr)
 
 
