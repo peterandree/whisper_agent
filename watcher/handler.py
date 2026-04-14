@@ -1,9 +1,14 @@
+
 import time
 from pathlib import Path
 from watchdog.events import FileSystemEventHandler
-from . import AUDIO_EXTENSIONS, process
+from config.settings import AUDIO_EXTENSIONS
 
 class AudioHandler(FileSystemEventHandler):
+    def __init__(self, process_func):
+        super().__init__()
+        self.process = process_func
+
     def on_created(self, event):
         if event.is_directory:
             return
@@ -12,4 +17,4 @@ class AudioHandler(FileSystemEventHandler):
             return
         # Wait for OBS to finish writing
         time.sleep(3)
-        process(path)
+        self.process(path)

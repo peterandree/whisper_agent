@@ -1,3 +1,18 @@
+## Running Tests
+
+To run all tests using uv and pytest:
+
+```
+uv pip install pytest
+uv run -m pytest
+```
+
+Or, with pip:
+
+```
+pip install pytest
+pytest
+```
 # Whisper Agent
 
 

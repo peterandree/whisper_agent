@@ -44,8 +44,9 @@ def process(path: Path):
         print(f"[!] Failed to process {path.name}: {e}", file=sys.stderr)
 
 
+
 def main():
-    start_watcher()
+    start_watcher(process)
 
 if __name__ == "__main__":
     main()
