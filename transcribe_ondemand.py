@@ -25,38 +25,51 @@ warnings.filterwarnings("ignore", category=UserWarning, module="pyannote")
 WATCH_DIR = Path("C:/data/meetings/raw")
 OUTPUT_DIR = Path("C:/data/meetings/summaries")
 OLLAMA_URL = "http://localhost:11434/api/generate"
-OLLAMA_MODEL = "llama3.1:8b"
+# OLLAMA_MODEL = "llama3.1:8b"
+OLLAMA_MODEL = "gpt-oss:20b"
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 AUDIO_EXTENSIONS = {".wav", ".mp3", ".mp4", ".mkv", ".m4a", ".flac"}
 
 
-PROMPT_TEMPLATE = """You are an expert meeting analyst. Analyze the following meeting transcript and produce a structured summary.
+PROMPT_TEMPLATE = """You are an expert meeting analyst. Your job is to produce a comprehensive, detailed summary that captures everything of substance from the transcript. Completeness is the priority — do not omit topics, arguments, context, or conclusions, even if they seem minor.
 
 Output the following sections in Markdown:
 
 ## Meeting Overview
-One paragraph (3-5 sentences) describing the meeting's purpose, participants if mentioned, and overall outcome.
+2-4 sentences: meeting purpose, attendees if mentioned, and overall outcome.
+
+## Topics Discussed
+For each distinct topic or agenda item covered in the meeting, write a subsection:
+### [Topic Name]
+- What was discussed, including the arguments, positions, data, and context raised by participants
+- Any conclusions or interim decisions reached on this topic
+- Any disagreements or differing viewpoints expressed
+Be thorough. Each topic should have 3-8 bullet points capturing the substance of what was said.
 
 ## Key Decisions
-Bullet list of every concrete decision made. Each bullet must be a complete, standalone sentence. Omit discussion and deliberation — only final decisions.
+Every concrete decision made. Each bullet must be a complete, standalone sentence including the rationale if one was stated.
 
 ## Action Items
-Table with columns: | Action | Owner | Deadline |
-Extract every committed task, assigned owner (write "Unassigned" if unclear), and deadline (write "No deadline" if not mentioned).
+| Action | Owner | Deadline | Context |
+|--------|-------|----------|---------|
+Extract every committed task. Add a brief Context column explaining why the task was assigned.
 
 ## Open Questions
-Bullet list of unresolved questions or topics explicitly deferred to a future meeting.
+Unresolved questions or topics explicitly deferred. Include who raised the question and why it was not resolved if stated.
+
+## Key Numbers & Facts
+Any specific figures mentioned: budgets, timelines, metrics, percentages, version numbers, dates, headcounts, thresholds. One fact per bullet with context.
 
 ## Technical Details
-Bullet list of any specific technical information: version numbers, architecture decisions, system names, metrics, thresholds, configurations. Omit this section entirely if none are present.
+Architecture decisions, system names, stack choices, configurations. Omit section if none present.
 
 ---
 Rules:
-- Ignore greetings, small talk, and filler phrases entirely.
-- Do not infer or invent information not explicitly stated in the transcript.
-- If a section has no content, write "None" under its heading — do not omit the heading.
-- Use professional, concise language. No padding.
+- Do NOT summarize away substance. If someone made an argument, capture the argument.
+- Do NOT infer or invent anything not in the transcript.
+- If a section has no content, write "None" under its heading.
+- Cover the entire transcript from start to finish — do not tail off toward the end.
 
 Transcript:
 {transcript}"""
@@ -133,16 +146,56 @@ def transcribe(path: Path) -> str:
         lines.append(f"{current_speaker}: " + " ".join(current_text))
 
     return "\n".join(lines)
+
 def summarize(transcript: str) -> str:
+    # Chunk if transcript is very long (~12k chars ≈ ~60 min meeting)
+    CHUNK_SIZE = 12000
+    OVERLAP = 500
+
+    if len(transcript) <= CHUNK_SIZE:
+        chunks = [transcript]
+    else:
+        chunks = []
+        start = 0
+        while start < len(transcript):
+            end = start + CHUNK_SIZE
+            chunks.append(transcript[start:end])
+            start = end - OVERLAP
+
+    if len(chunks) == 1:
+        partial_summaries = [_call_ollama(PROMPT_TEMPLATE.format(transcript=chunks[0]))]
+    else:
+        print(f"[+] Summarizing in {len(chunks)} chunks...")
+        partial_summaries = []
+        for i, chunk in enumerate(chunks):
+            print(f"  [+] Chunk {i+1}/{len(chunks)}...")
+            partial_summaries.append(_call_ollama(PROMPT_TEMPLATE.format(transcript=chunk)))
+
+    if len(partial_summaries) == 1:
+        return partial_summaries[0]
+
+    # Merge pass
+    print("[+] Merging partial summaries...")
+    merge_prompt = """You are merging multiple partial summaries of the same meeting into one complete summary.
+Combine all sections, deduplicate, and preserve all unique content. Do not drop any action items, decisions, or discussed topics.
+Produce the same section structure as the inputs.
+
+Partial summaries:
+{transcript}"""
+    return _call_ollama(merge_prompt.format(transcript="\n\n---\n\n".join(partial_summaries)))
+
+def _call_ollama(prompt: str) -> str:
     payload = {
         "model": OLLAMA_MODEL,
-        "prompt": PROMPT_TEMPLATE.format(transcript=transcript),
+        "prompt": prompt,
         "stream": False,
+        "options": {
+            "num_ctx": 32768   # 32k covers ~2-hour meetings with headroom
+        }
     }
-    response = requests.post(OLLAMA_URL, json=payload, timeout=300)
+    response = requests.post(OLLAMA_URL, json=payload, timeout=600)
     response.raise_for_status()
     return response.json()["response"]
-
 
 def process(path: Path):
     print(f"[+] Processing: {path.name}")
