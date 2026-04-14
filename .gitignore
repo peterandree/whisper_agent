@@ -1,0 +1,52 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+*.egg
+MANIFEST
+.eggs/
+wheels/
+sdist/
+
+# Virtual environments
+.env
+.venv
+env/
+venv/
+ENV/
+
+# Testing / coverage
+.tox/
+.nox/
+.coverage
+.coverage.*
+htmlcov/
+.cache
+nosetests.xml
+pytest_cache/
+
+# Jupyter
+.ipynb_checkpoints
+
+# pyenv
+.python-version
+
+# Secrets
+*.env
+secrets.py
+
+# IDE
+.idea/
+# .vscode/  ← uncomment if you don't want to share VS Code settings
+
+# Windows
+Thumbs.db
+
+# Ruff
+.ruff_cache/
