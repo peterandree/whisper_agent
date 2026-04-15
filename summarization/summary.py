@@ -43,6 +43,18 @@ def _call_ollama(prompt: str, ollama_url: str, ollama_model: str) -> str:
             time.sleep(wait)
 
 
+def _split_transcript(transcript: str, chunk_size: int, overlap: int) -> list[str]:
+    chunks, start = [], 0
+    while start < len(transcript):
+        end = start + chunk_size
+        if end < len(transcript):
+            boundary = transcript.rfind("\n", start, end)
+            if boundary != -1 and boundary > start:
+                end = boundary + 1  # include the newline
+        chunks.append(transcript[start:end])
+        start = end - overlap
+    return chunks
+
 def summarize(transcript: str, ollama_url: str, ollama_model: str) -> str:
     """
     Summarize a transcript using the Ollama API, chunking if necessary.
@@ -61,12 +73,7 @@ def summarize(transcript: str, ollama_url: str, ollama_model: str) -> str:
     if len(transcript) <= CHUNK_SIZE:
         chunks = [transcript]
     else:
-        chunks = []
-        start = 0
-        while start < len(transcript):
-            end = start + CHUNK_SIZE
-            chunks.append(transcript[start:end])
-            start = end - OVERLAP
+        chunks = _split_transcript(transcript, CHUNK_SIZE, OVERLAP)
 
     if len(chunks) == 1:
         partial_summaries = [_call_ollama(PROMPT_TEMPLATE.format(transcript=chunks[0]), ollama_url, ollama_model)]

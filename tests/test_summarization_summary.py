@@ -1,3 +1,16 @@
+from summarization.summary import _split_transcript
+
+def test_split_transcript_on_newline():
+    # 3 chunks, boundaries at newlines
+    text = "A\nB\nC\nD\nE\nF\nG\nH\nI\nJ\n"
+    chunk_size = 6  # force splits
+    overlap = 0
+    chunks = _split_transcript(text, chunk_size, overlap)
+    # Each chunk should end at a newline boundary
+    for chunk in chunks[:-1]:
+        assert chunk.endswith("\n")
+    # Chunks should cover the whole text
+    assert ''.join(chunks) == text
 import requests
 import time
 
