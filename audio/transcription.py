@@ -8,27 +8,21 @@ from whisperx.diarize import DiarizationPipeline
 
 def transcribe(path: Path, device: str, compute_type: str, hf_token: str) -> str:
 
-    print(f"[LOG] [CHECKPOINT] Loading audio from: {path}")
+    print(f"[DEBUG] Loading audio from: {path}")
     audio = whisperx.load_audio(str(path))
-    print(f"[LOG] [CHECKPOINT] Audio loaded. Type: {type(audio)}, Length: {getattr(audio, 'shape', 'unknown')}")
+    print(f"[DEBUG] Audio loaded. Type: {type(audio)}, Length: {getattr(audio, 'shape', 'unknown')}")
 
     # Phase 1: Streaming transcription via faster-whisper generator
-    print("[LOG] [CHECKPOINT] About to load WhisperModel...")
+    print("[+] Loading model and transcribing...")
     fw_model = WhisperModel("large-v3-turbo", device=device, compute_type=compute_type)
-    print("[LOG] [CHECKPOINT] WhisperModel loaded.")
-    print("[LOG] [CHECKPOINT] About to call fw_model.transcribe...")
+    print("[DEBUG] WhisperModel loaded.")
     segments_generator, info = fw_model.transcribe(audio, beam_size=5)
-    print(f"[LOG] [CHECKPOINT] fw_model.transcribe returned. Detected language: {info.language}")
+    print(f"[+] Detected language: {info.language}")
 
     raw_segments = []
-    print("[LOG] [CHECKPOINT] Entering transcription loop...")
-    seg_count = 0
     for seg in segments_generator:
-        print(f"[LOG] [CHECKPOINT] Processing segment {seg_count}: start={seg.start}, end={seg.end}", flush=True)
         print(f"  [{seg.start:6.1f}s -> {seg.end:6.1f}s] {seg.text.strip()}", flush=True)
         raw_segments.append({"start": seg.start, "end": seg.end, "text": seg.text})
-        seg_count += 1
-    print(f"[LOG] [CHECKPOINT] Exited transcription loop. Segments processed: {seg_count}")
 
     print(f"[DEBUG] Transcription complete. Segments: {len(raw_segments)}")
     del fw_model; gc.collect(); torch.cuda.empty_cache()
