@@ -10,6 +10,21 @@ from config.settings import AUDIO_EXTENSIONS
 logger = logging.getLogger(__name__)
 
 
+def _wait_until_stable(path: Path, interval: float = 0.5, stable_count: int = 4) -> None:
+    """
+    Wait until the file size is stable for several consecutive checks.
+    """
+    last_size = -1
+    stable = 0
+    while stable < stable_count:
+        size = path.stat().st_size
+        if size == last_size:
+            stable += 1
+        else:
+            stable = 0
+        last_size = size
+        time.sleep(interval)
+
 class AudioHandler(FileSystemEventHandler):
     """
     Handles file creation events for audio files and triggers processing.
@@ -37,6 +52,6 @@ class AudioHandler(FileSystemEventHandler):
         if path.suffix.lower() not in AUDIO_EXTENSIONS:
             return
         logger.info(f"Detected new audio file: {path}")
-        # Wait for OBS to finish writing
-        time.sleep(3)
+        # Wait for OBS to finish writing (wait for file size to stabilize)
+        _wait_until_stable(path)
         self.process(path)
