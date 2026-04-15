@@ -61,6 +61,7 @@ def main() -> None:
     """
     Main entry point. Starts the file watcher for processing audio files.
     """
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     start_watcher(process)
 
 if __name__ == "__main__":

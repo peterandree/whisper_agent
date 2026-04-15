@@ -1,6 +1,21 @@
+import tempfile
+import shutil
+from config.settings import OUTPUT_DIR
+
+def test_output_dir_created_on_main(monkeypatch):
+    temp_dir = tempfile.mkdtemp()
+    try:
+        monkeypatch.setenv('WHISPER_AGENT_OUTPUT_DIR', temp_dir + '/created')
+        import importlib
+        import whisper_agent.main as main_mod
+        importlib.reload(main_mod)
+        main_mod.main()
+        assert main_mod.OUTPUT_DIR.exists()
+    finally:
+        shutil.rmtree(temp_dir, ignore_errors=True)
 import pytest
 from unittest.mock import patch, MagicMock
-from main import process
+from whisper_agent.main import process
 from pathlib import Path
 
 
