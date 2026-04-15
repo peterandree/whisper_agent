@@ -47,9 +47,13 @@ secrets.py
 
 # Windows
 Thumbs.db
+.vs/
 
 # Ruff
 .ruff_cache/
 
 # Dependency lock files
 uv.lock
+
+# Miniconda installer
+Miniconda3-latest-Windows-x86_64.exe
