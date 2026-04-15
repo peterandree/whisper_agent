@@ -1,4 +1,3 @@
-
 import gc
 import torch
 import whisperx
@@ -10,9 +9,7 @@ from whisperx.diarize import DiarizationPipeline
 
 logger = logging.getLogger(__name__)
 
-
-
-
+def transcribe(
     path: Path, device: str, compute_type: str, hf_token: str
 ) -> str:
     """
