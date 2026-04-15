@@ -1,5 +1,7 @@
+
 import os
 import shutil
+import logging
 
 _ffmpeg_exe = shutil.which("ffmpeg")
 if _ffmpeg_exe:
@@ -84,6 +86,16 @@ import torch
 import os
 
 def transcribe(path: Path) -> str:
+    """
+    Transcribe an audio file using WhisperModel and return the transcript.
+
+    Args:
+        path (Path): Path to the audio file.
+
+    Returns:
+        str: The transcript of the audio file.
+    """
+    logger = logging.getLogger(__name__)
     device = "cuda"
     compute_type = "float16"
     hf_token = os.environ["HF_TOKEN"]
@@ -91,10 +103,10 @@ def transcribe(path: Path) -> str:
     audio = whisperx.load_audio(str(path))
 
     # Phase 1: Streaming transcription via faster-whisper generator
-    print("[+] Loading model and transcribing...")
+    logger.info("Loading model and transcribing...")
     fw_model = WhisperModel("large-v3-turbo", device=device, compute_type=compute_type)
     segments_generator, info = fw_model.transcribe(audio, beam_size=5)
-    print(f"[+] Detected language: {info.language}")
+    logger.info(f"Detected language: {info.language}")
 
     raw_segments = []
     for seg in segments_generator:
