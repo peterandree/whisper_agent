@@ -1,4 +1,3 @@
-from pathlib import Path
 from watchdog.observers import Observer
 from .handler import AudioHandler
 from config.settings import WATCH_DIR
