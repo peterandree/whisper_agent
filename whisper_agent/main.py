@@ -5,7 +5,7 @@ import warnings
 import logging
 from datetime import datetime
 from pathlib import Path
-from config.settings import OUTPUT_DIR, OLLAMA_URL, OLLAMA_MODEL
+from config.settings import OUTPUT_DIR, OLLAMA_URL, OLLAMA_MODEL, DEVICE, COMPUTE_TYPE
 from audio.transcription import transcribe
 from summarization.summary import summarize
 from watcher.watcher import start_watcher
@@ -32,10 +32,7 @@ def process(path: Path, hf_token: str) -> None:
     """
     logging.info(f"Processing: {path.name}")
     try:
-        device = "cuda"  # "cpu" or "cuda" 
-        compute_type = "float32" if device == "cpu" else "float16"
-
-        transcript = transcribe(path, device, compute_type, hf_token)
+        transcript = transcribe(path, DEVICE, COMPUTE_TYPE, hf_token)
         logging.info(f"Transcript generated. Length: {len(transcript)} chars")
 
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
