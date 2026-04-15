@@ -1,3 +1,23 @@
+import requests
+import time
+
+from unittest.mock import patch, MagicMock
+
+@patch('summarization.summary.requests.post')
+def test_call_ollama_retries_on_failure(mock_post):
+    # Simulate two failures, then a success
+    mock_response = MagicMock()
+    mock_response.raise_for_status.side_effect = [requests.RequestException("fail1"), requests.RequestException("fail2"), None]
+    mock_response.json.return_value = {"response": "ok"}
+    mock_post.return_value = mock_response
+
+    from summarization import summary
+    # Patch time.sleep to avoid actual waiting
+    with patch.object(time, "sleep", return_value=None) as mock_sleep:
+        result = summary._call_ollama("prompt", "url", "model")
+        assert result == "ok"
+        assert mock_post.call_count == 3
+        assert mock_sleep.call_count == 2
 import pytest
 from unittest.mock import patch, MagicMock
 from summarization.summary import summarize

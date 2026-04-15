@@ -1,10 +1,14 @@
 
 import requests
 import logging
+import time
 from .prompts import PROMPT_TEMPLATE
 
 logger = logging.getLogger(__name__)
 
+
+MAX_RETRIES = 3
+RETRY_BACKOFF = [2, 5, 15]  # seconds
 
 def _call_ollama(prompt: str, ollama_url: str, ollama_model: str) -> str:
     """
@@ -26,9 +30,16 @@ def _call_ollama(prompt: str, ollama_url: str, ollama_model: str) -> str:
             "num_ctx": 16384
         }
     }
-    response = requests.post(ollama_url, json=payload, timeout=600)
-    response.raise_for_status()
-    return response.json()["response"]
+    for attempt, wait in enumerate(RETRY_BACKOFF, start=1):
+        try:
+            response = requests.post(ollama_url, json=payload, timeout=600)
+            response.raise_for_status()
+            return response.json()["response"]
+        except requests.RequestException as e:
+            if attempt == MAX_RETRIES:
+                raise
+            logger.warning(f"Ollama request failed (attempt {attempt}/{MAX_RETRIES}): {e}. Retrying in {wait}s...")
+            time.sleep(wait)
 
 
 def summarize(transcript: str, ollama_url: str, ollama_model: str) -> str:
