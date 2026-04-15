@@ -24,14 +24,14 @@ def transcribe(
     Returns:
         str: Formatted transcript with speaker changes.
     """
-    logger.debug(f"Loading audio from: {path}")
+    logger.info(f"Loading audio from: {path}")
     audio = whisperx.load_audio(str(path))
-    logger.debug(f"Audio loaded. Type: {type(audio)}, Length: {getattr(audio, 'shape', 'unknown')}")
+    logger.info(f"Audio loaded. Type: {type(audio)}, Length: {getattr(audio, 'shape', 'unknown')}")
 
     # Phase 1: Streaming transcription via faster-whisper generator
-    logger.info("Loading model and transcribing...")
+    logger.info("Loading WhisperModel...")
     fw_model = WhisperModel("large-v3-turbo", device=device, compute_type=compute_type)
-    logger.debug("WhisperModel loaded.")
+    logger.info("WhisperModel loaded.")
     segments_generator, info = fw_model.transcribe(audio, beam_size=5)
     logger.info(f"Detected language: {info.language}")
 
@@ -47,16 +47,16 @@ def transcribe(
     # Phase 2: Align word-level timestamps
     logger.info(f"Aligning timestamps... (segments: {len(raw_segments)}, audio type: {type(audio)}, device: {device})")
     try:
-        logger.debug("Loading align model...")
+        logger.info("Loading alignment model...")
         model_a, metadata = whisperx.load_align_model(
             language_code=info.language, device=device
         )
-        logger.debug("Align model loaded.")
+        logger.info("Alignment model loaded.")
         result = whisperx.align(
             raw_segments, model_a, metadata, audio, device,
             return_char_alignments=False
         )
-        logger.debug("Alignment complete.")
+        logger.info("Alignment complete.")
         del model_a; gc.collect(); torch.cuda.empty_cache()
         logger.debug("Align model deleted and GPU cache cleared.")
     except Exception as e:
@@ -68,10 +68,11 @@ def transcribe(
     # Phase 3: Diarize
     logger.info("Running speaker diarization...")
     try:
+        logger.info("Loading diarization pipeline...")
         diarize_model = DiarizationPipeline(token=hf_token, device=device)
-        logger.debug("DiarizationPipeline loaded.")
+        logger.info("Diarization pipeline loaded.")
         diarize_segments = diarize_model(audio)
-        logger.debug("Diarization complete.")
+        logger.info("Diarization complete.")
         result = whisperx.assign_word_speakers(diarize_segments, result)
         logger.debug("Speaker assignment complete.")
     except Exception as e:
