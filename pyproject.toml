@@ -3,7 +3,7 @@ name = "whisper-agent"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
-requires-python = ">=3.12,<3.13"
+requires-python = ">=3.11,<3.13"
 dependencies = [
     "fastapi>=0.135.3",
     "faster-whisper>=1.2.1",
@@ -17,7 +17,7 @@ dependencies = [
 ]
 
 [project.scripts]
-whisper-agent = "main:main"
+whisper-agent = "whisper_agent.main:main"
 
 [[tool.uv.index]]
 name = "pytorch-cu128"
@@ -32,3 +32,6 @@ url = "https://pypi.org/simple"
 torch = { index = "pytorch-cu128" }
 torchaudio = { index = "pytorch-cu128" }
 torchvision = { index = "pytorch-cu128" }
+
+[tool.setuptools.packages.find]
+include = ["audio", "config", "watcher", "summarization", "whisper_agent"]

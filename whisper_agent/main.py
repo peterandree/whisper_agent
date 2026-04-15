@@ -1,4 +1,3 @@
-
 import os
 import sys
 import shutil
@@ -23,7 +22,6 @@ logging.basicConfig(
     format='%(asctime)s [%(levelname)s] %(message)s',
     handlers=[logging.StreamHandler(sys.stdout)]
 )
-
 
 def process(path: Path) -> None:
     """
@@ -58,9 +56,6 @@ def process(path: Path) -> None:
         import traceback
         logging.error(f"Failed to process {path.name}: {e}")
         traceback.print_exc()
-
-
-
 
 def main() -> None:
     """

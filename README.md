@@ -33,16 +33,18 @@ pip install -e .
 
 ## Usage
 
-After installation, run the app using uv:
+
+
+After installation, run the app using uv (recommended):
 
 ```
 uv run whisper-agent
 ```
 
-Or, if you prefer pip:
+Or, if you prefer pip or Python directly:
 
 ```
-whisper-agent
+python main.py
 ```
 
 This will start the directory watcher and process new audio files as described above.
