@@ -23,7 +23,7 @@ logging.basicConfig(
     handlers=[logging.StreamHandler(sys.stdout)]
 )
 
-def process(path: Path) -> None:
+def process(path: Path, hf_token: str) -> None:
     """
     Process an audio file: transcribe, summarize, and write outputs.
 
@@ -34,7 +34,6 @@ def process(path: Path) -> None:
     try:
         device = "cuda"  # "cpu" or "cuda" 
         compute_type = "float32" if device == "cpu" else "float16"
-        hf_token = os.environ["HF_TOKEN"]
 
         transcript = transcribe(path, device, compute_type, hf_token)
         logging.info(f"Transcript generated. Length: {len(transcript)} chars")
@@ -62,7 +61,15 @@ def main() -> None:
     Main entry point. Starts the file watcher for processing audio files.
     """
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    start_watcher(process)
+    hf_token = os.environ.get("HF_TOKEN")
+    if not hf_token:
+        raise RuntimeError("HF_TOKEN environment variable is not set. Get a token at https://huggingface.co/settings/tokens")
+
+    # Wrap process to provide hf_token
+    def process_with_token(path: Path):
+        return process(path, hf_token)
+
+    start_watcher(process_with_token)
 
 if __name__ == "__main__":
     main()
