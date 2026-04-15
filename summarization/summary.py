@@ -3,6 +3,7 @@ import requests
 import logging
 import time
 from .prompts import PROMPT_TEMPLATE
+from config.settings import OLLAMA_TIMEOUT
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +33,7 @@ def _call_ollama(prompt: str, ollama_url: str, ollama_model: str) -> str:
     }
     for attempt, wait in enumerate(RETRY_BACKOFF, start=1):
         try:
-            response = requests.post(ollama_url, json=payload, timeout=600)
+            response = requests.post(ollama_url, json=payload, timeout=OLLAMA_TIMEOUT)
             response.raise_for_status()
             return response.json()["response"]
         except requests.RequestException as e:

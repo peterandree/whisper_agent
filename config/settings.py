@@ -1,3 +1,4 @@
+
 from pathlib import Path
 import os
 
@@ -6,4 +7,5 @@ OUTPUT_DIR = Path(os.environ.get("WHISPER_AGENT_OUTPUT_DIR", "C:/data/meetings/s
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434/api/generate")
 OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "gpt-oss:20b")
 AUDIO_EXTENSIONS = {".wav", ".mp3", ".mp4", ".mkv", ".m4a", ".flac"}
+OLLAMA_TIMEOUT = int(os.environ.get("OLLAMA_TIMEOUT", "600"))
 

@@ -1,3 +1,9 @@
+def test_ollama_timeout_env(monkeypatch):
+    monkeypatch.setenv('OLLAMA_TIMEOUT', '123')
+    import importlib
+    import config.settings as settings_reload
+    importlib.reload(settings_reload)
+    assert settings_reload.OLLAMA_TIMEOUT == 123
 import shutil
 import tempfile
 from config.settings import OUTPUT_DIR
