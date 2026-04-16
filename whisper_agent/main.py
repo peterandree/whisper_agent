@@ -5,7 +5,6 @@ warnings.filterwarnings("ignore", category=UserWarning, module="pyannote")
 import os
 import sys
 import shutil
-import warnings
 import logging
 from datetime import datetime
 from pathlib import Path
@@ -69,11 +68,26 @@ def process(path: Path, hf_token: str) -> None:
         logging.error(f"Failed to process {path.name}: {e}")
         traceback.print_exc()
 
+def _verify_output_dir(path: Path) -> None:
+    test_file = path / ".write_test"
+    try:
+        test_file.write_text("ok")
+        test_file.unlink()
+    except OSError as e:
+        raise RuntimeError(f"OUTPUT_DIR is not writable: {path} — {e}")
+
 def main() -> None:
     """
     Main entry point. Starts the file watcher for processing audio files.
     """
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    _verify_output_dir(OUTPUT_DIR)
+    
+    if not shutil.which("ffmpeg"):
+        raise RuntimeError(
+            "ffmpeg not found on PATH. Install it with: winget install Gyan.FFmpeg"
+        )
+    
     hf_token = os.environ.get("HF_TOKEN")
     if not hf_token:
         raise RuntimeError("HF_TOKEN environment variable is not set. Get a token at https://huggingface.co/settings/tokens")

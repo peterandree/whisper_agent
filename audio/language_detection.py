@@ -1,5 +1,6 @@
 import logging
 import whisperx
+import torch
 from pathlib import Path
 from faster_whisper import WhisperModel
 
@@ -23,13 +24,25 @@ def detect_language(audio_path: Path, device: str) -> str:
         ISO 639-1 language code, e.g. 'de', 'en'.
     """
     global _detector
+    if _detector is not None:
+        try:
+            torch.cuda.synchronize()
+        except Exception:
+            logger.warning("CUDA context lost — reinitializing language detection model.")
+            _detector = None
     if _detector is None:
         logger.info("Loading language detection model (tiny)...")
         _detector = WhisperModel("tiny", device=device, compute_type="int8")
         logger.info("Language detection model loaded.")
 
-    audio = whisperx.load_audio(str(audio_path))
+    try:
+        audio = whisperx.load_audio(str(audio_path))
+    except Exception as e:
+        logger.error(f"Failed to load audio for language detection: {e}")
+        raise
     audio_slice = audio[:_SAMPLE_RATE * _DETECTION_SECONDS]
+    if audio_slice.shape[0] == 0:
+        raise ValueError(f"Audio slice is empty — file may be corrupt: {audio_path}")
 
     _, info = _detector.transcribe(audio_slice, beam_size=1)
     logger.info(

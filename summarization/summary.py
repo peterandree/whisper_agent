@@ -44,11 +44,19 @@ def _call_ollama(prompt: str, ollama_url: str, ollama_model: str) -> str:
             response.raise_for_status()
             _ollama_first_request = False
             return response.json()["response"]
+        except requests.exceptions.ConnectionError:
+            raise RuntimeError(
+                f"Cannot connect to Ollama at {ollama_url}. "
+                "Ensure Ollama is running: Start-Process ollama serve"
+            )
         except requests.RequestException as e:
             if attempt == MAX_RETRIES:
-                raise
+                logger.error(f"Ollama request failed after {MAX_RETRIES} attempts: {e}")
+                raise RuntimeError(f"Ollama request failed after {MAX_RETRIES} attempts: {e}")
             logger.warning(f"Ollama request failed (attempt {attempt}/{MAX_RETRIES}): {e}. Retrying in {wait}s...")
             time.sleep(wait)
+    # Should never reach here, but just in case
+    raise RuntimeError("Ollama request failed: unknown error (no response returned)")
 
 
 def _split_transcript(transcript: str, chunk_size: int, overlap: int) -> list[str]:
