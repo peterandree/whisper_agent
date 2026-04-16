@@ -209,8 +209,11 @@ def transcribe(path: Path, device: str, compute_type: str, hf_token: str) -> str
             logger.info(f"{progress}[{t_start} -> {t_end}] {seg_text}")
             raw_segments.append({"start": seg_start, "end": seg_end, "text": seg.text})
         logger.info(f"Transcription complete. Segments: {len(raw_segments)}")
-        logger.info(f"Segment collection done. About to delete WhisperModel. VRAM allocated: {torch.cuda.memory_allocated()/1024**3:.2f} GB")
+        # Log VRAM usage before deleting the model
+        vram_before_del = torch.cuda.memory_allocated()/1024**3
+        logger.info(f"Segment collection done. VRAM allocated before deleting WhisperModel: {vram_before_del:.2f} GB")
         del fw_model
+        logger.info("WhisperModel deleted. VRAM will now be freed.")
         _cleanup_gpu("WhisperModel deletion")
     except RuntimeError as e:
         if "CUDA out of memory" in str(e):
