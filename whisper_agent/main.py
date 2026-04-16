@@ -4,8 +4,12 @@ warnings.filterwarnings("ignore", category=UserWarning, module="pyannote")
 
 import os
 import sys
+import time
 import shutil
 import logging
+import subprocess
+import traceback
+import torch
 from datetime import datetime
 from pathlib import Path
 from config.settings import OUTPUT_DIR, OLLAMA_URL, OLLAMA_MODEL, DEVICE, COMPUTE_TYPE
@@ -13,60 +17,95 @@ from audio.transcription import transcribe
 from summarization.summary import summarize
 from watcher.watcher import start_watcher
 
+# Allow ffmpeg DLLs to be found on Windows before any media library loads
 _ffmpeg_exe = shutil.which("ffmpeg")
 if _ffmpeg_exe:
     os.add_dll_directory(os.path.dirname(_ffmpeg_exe))
 
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s [%(levelname)s] %(message)s',
-    handlers=[logging.StreamHandler(sys.stdout)]
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    handlers=[logging.StreamHandler(sys.stdout)],
 )
 
-def process(path: Path, hf_token: str) -> None:
-    """
-    Process an audio file: transcribe, summarize, and write outputs.
+logger = logging.getLogger(__name__)
 
-    Args:
-        path (Path): Path to the audio file to process.
+
+# ---------------------------------------------------------------------------
+# Ollama lifecycle
+# ---------------------------------------------------------------------------
+
+def _stop_ollama() -> None:
     """
-    logging.info(f"Processing: {path.name}")
+    Kill the Ollama process to release its CUDA context before transcription.
+    Under Windows WDDM, two processes cannot share the GPU context freely —
+    Ollama holding it causes whisperx to crash when it attempts CUDA init.
+    """
+    if not shutil.which("ollama"):
+        return
+    result = subprocess.run(
+        ["taskkill", "/F", "/IM", "ollama.exe"],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    if result.returncode == 0:
+        logger.info("Ollama stopped. Waiting for CUDA context to be released...")
+        time.sleep(2.0)
+    else:
+        logger.debug("taskkill returned non-zero — Ollama may not have been running.")
+
+
+def _start_ollama() -> None:
+    """
+    Restart Ollama after transcription completes so summarization can proceed.
+    Waits 3 seconds for the server to become ready.
+    """
+    if not shutil.which("ollama"):
+        logger.warning("ollama not found on PATH — skipping restart.")
+        return
+    subprocess.Popen(
+        ["ollama", "serve"],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    logger.info("Ollama restarted. Waiting for server to become ready...")
+    time.sleep(3.0)
+
+
+# ---------------------------------------------------------------------------
+# CUDA startup check
+# ---------------------------------------------------------------------------
+
+def _initialize_cuda() -> None:
+    """
+    Force PyTorch to claim the CUDA context at startup rather than lazily.
+    If another process (e.g. a stale Ollama instance) already owns the context
+    exclusively, this fails loudly here with a clear message instead of causing
+    a silent crash deep inside a model load later.
+    """
+    if not torch.cuda.is_available():
+        logger.warning("CUDA not available — running on CPU.")
+        return
     try:
-        logging.info("Starting transcription...")
-        transcript = transcribe(path, DEVICE, COMPUTE_TYPE, hf_token)
-
-        logging.info(f"Transcription complete. Length: {len(transcript)} chars. Starting summarization...")
-        logging.info(f"Transcript type: {type(transcript)}, length: {len(transcript)}")
-        logging.info(f"Transcript sample: {transcript[:200]!r}")
-
-        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-        stem = f"{path.stem}_{ts}"
-
-        transcript_file = OUTPUT_DIR / (stem + ".transcript.txt")
-        logging.info(f"About to write transcript to: {transcript_file}")
-        try:
-            transcript_file.write_text(transcript, encoding="utf-8")
-            logging.info(f"Transcript written to: {transcript_file}")
-        except Exception as e:
-            logging.error(f"Failed to write transcript file: {e}")
-            raise
-
-        logging.info("Sending transcript to Ollama for summarization. If this is the first request, model loading may take several minutes...")
-        summary = summarize(transcript, OLLAMA_URL, OLLAMA_MODEL)
-        logging.info(f"Summary generated. Length: {len(summary)} chars. Writing summary to disk...")
-
-        out_file = OUTPUT_DIR / (stem + ".md")
-        logging.info(f"About to write summary to: {out_file}")
-        try:
-            out_file.write_text(summary, encoding="utf-8")
-            logging.info(f"Summary written to: {out_file}")
-        except Exception as e:
-            logging.error(f"Failed to write summary file: {e}")
-            raise
+        torch.cuda.set_device(0)
+        torch.zeros(1).cuda()
+        props = torch.cuda.get_device_properties(0)
+        logger.info(
+            f"CUDA context initialized. "
+            f"Device: {props.name}, "
+            f"VRAM: {props.total_memory / 1024 ** 3:.1f} GB"
+        )
     except Exception as e:
-        import traceback
-        logging.error(f"Failed to process {path.name}: {e}")
-        traceback.print_exc()
+        raise RuntimeError(
+            f"Failed to initialize CUDA context: {e}\n"
+            "Another process may own the GPU exclusively. "
+            "Check nvidia-smi for competing processes."
+        ) from e
+
+
+# ---------------------------------------------------------------------------
+# Output directory guard
+# ---------------------------------------------------------------------------
 
 def _verify_output_dir(path: Path) -> None:
     test_file = path / ".write_test"
@@ -74,29 +113,116 @@ def _verify_output_dir(path: Path) -> None:
         test_file.write_text("ok")
         test_file.unlink()
     except OSError as e:
-        raise RuntimeError(f"OUTPUT_DIR is not writable: {path} — {e}")
+        raise RuntimeError(f"OUTPUT_DIR is not writable: {path} — {e}") from e
+
+
+# ---------------------------------------------------------------------------
+# Per-file processing
+# ---------------------------------------------------------------------------
+
+def process(path: Path, hf_token: str) -> None:
+    """
+    Process one audio file: stop Ollama, transcribe, restart Ollama,
+    summarize, write outputs.
+
+    Args:
+        path:     Path to the audio file to process.
+        hf_token: HuggingFace token for the diarization model.
+    """
+    logger.info(f"Processing: {path.name}")
+
+    # --- Stop Ollama so its CUDA context is freed before any model loads ---
+    _stop_ollama()
+
+    transcript: str | None = None
+    try:
+        logger.info("Starting transcription...")
+        transcript = transcribe(path, DEVICE, COMPUTE_TYPE, hf_token)
+        logger.info(
+            f"Transcription complete. "
+            f"Length: {len(transcript)} chars."
+        )
+        logger.info(f"Transcript sample: {transcript[:200]!r}")
+
+        ts   = datetime.now().strftime("%Y%m%d_%H%M%S")
+        stem = f"{path.stem}_{ts}"
+
+        transcript_file = OUTPUT_DIR / (stem + ".transcript.txt")
+        logger.info(f"Writing transcript to: {transcript_file}")
+        try:
+            transcript_file.write_text(transcript, encoding="utf-8")
+            logger.info(f"Transcript written.")
+        except Exception as e:
+            logger.error(f"Failed to write transcript file: {e}")
+            raise
+
+    except Exception as e:
+        logger.error(f"Transcription failed for {path.name}: {e}")
+        traceback.print_exc()
+        # Restart Ollama even on failure so the service is not left stopped
+        _start_ollama()
+        return
+
+    # --- Restart Ollama before summarization ---
+    _start_ollama()
+
+    try:
+        logger.info(
+            "Sending transcript to Ollama for summarization. "
+            "If this is the first request, model loading may take several minutes..."
+        )
+        summary = summarize(transcript, OLLAMA_URL, OLLAMA_MODEL)
+        logger.info(f"Summary generated. Length: {len(summary)} chars.")
+
+        out_file = OUTPUT_DIR / (stem + ".md")
+        logger.info(f"Writing summary to: {out_file}")
+        try:
+            out_file.write_text(summary, encoding="utf-8")
+            logger.info(f"Summary written.")
+        except Exception as e:
+            logger.error(f"Failed to write summary file: {e}")
+            raise
+
+    except Exception as e:
+        logger.error(f"Summarization failed for {path.name}: {e}")
+        traceback.print_exc()
+
+
+# ---------------------------------------------------------------------------
+# Entry point
+# ---------------------------------------------------------------------------
 
 def main() -> None:
     """
-    Main entry point. Starts the file watcher for processing audio files.
+    Startup checks, then launch the file watcher.
     """
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     _verify_output_dir(OUTPUT_DIR)
-    
+
     if not shutil.which("ffmpeg"):
         raise RuntimeError(
             "ffmpeg not found on PATH. Install it with: winget install Gyan.FFmpeg"
         )
-    
+
     hf_token = os.environ.get("HF_TOKEN")
     if not hf_token:
-        raise RuntimeError("HF_TOKEN environment variable is not set. Get a token at https://huggingface.co/settings/tokens")
+        raise RuntimeError(
+            "HF_TOKEN environment variable is not set. "
+            "Get a token at https://huggingface.co/settings/tokens"
+        )
 
-    # Wrap process to provide hf_token
-    def process_with_token(path: Path):
-        return process(path, hf_token)
+    # Stop any running Ollama instance before the CUDA check so the context
+    # is free when PyTorch initializes
+    _stop_ollama()
+    _initialize_cuda()
+
+    logger.info(f"Watching for audio files. Output directory: {OUTPUT_DIR}")
+
+    def process_with_token(path: Path) -> None:
+        process(path, hf_token)
 
     start_watcher(process_with_token)
+
 
 if __name__ == "__main__":
     main()

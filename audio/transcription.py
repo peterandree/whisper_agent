@@ -1,3 +1,6 @@
+import os
+os.environ["PYTORCH_NO_CUDA_MEMORY_CACHING"] = "1"
+
 import subprocess
 import tempfile
 import gc
@@ -15,6 +18,25 @@ from audio.model_selector import select_align_model
 
 logger = logging.getLogger(__name__)
 
+
+def _log_device(label: str, device: str) -> None:
+    """Log whether a model is actually using the GPU or silently fell back to CPU."""
+    if device != "cuda":
+        logger.info(f"{label} running on CPU.")
+        return
+    allocated = torch.cuda.memory_allocated() / 1024 ** 3
+    reserved  = torch.cuda.memory_reserved()  / 1024 ** 3
+    if allocated < 0.1:
+        logger.warning(
+            f"{label} — VRAM shows {allocated:.2f} GB allocated. "
+            "Model may have silently fallen back to CPU. "
+            "Check that no other process holds the CUDA context."
+        )
+    else:
+        logger.info(
+            f"{label} running on GPU. "
+            f"VRAM: {allocated:.2f} GB allocated, {reserved:.2f} GB reserved."
+        )
 
 def _cleanup_gpu(label: str) -> None:
     """Synchronize CUDA, release memory, wait for driver to propagate, log VRAM state."""
@@ -92,6 +114,7 @@ def transcribe(path: Path, device: str, compute_type: str, hf_token: str) -> str
     # Phase 1: Transcription
     logger.info("Loading WhisperModel (large-v3-turbo)...")
     fw_model = WhisperModel("large-v3-turbo", device=device, compute_type=compute_type)
+    _log_device("WhisperModel (large-v3-turbo)", device)
     logger.info("WhisperModel loaded. Starting transcription...")
 
     segments_generator, info = fw_model.transcribe(
@@ -104,6 +127,8 @@ def transcribe(path: Path, device: str, compute_type: str, hf_token: str) -> str
         raw_segments.append({"start": seg.start, "end": seg.end, "text": seg.text})
 
     logger.info(f"Transcription complete. Segments: {len(raw_segments)}")
+    logger.info(f"Segment collection done. About to delete WhisperModel. VRAM allocated: {torch.cuda.memory_allocated()/1024**3:.2f} GB")
+    
     del fw_model
     _cleanup_gpu("WhisperModel deletion")
 
@@ -126,6 +151,7 @@ def transcribe(path: Path, device: str, compute_type: str, hf_token: str) -> str
                 device=device,
                 model_name=align_model_name,
             )
+            _log_device(f"Alignment model ({align_model_name or 'whisperx built-in'})", device)
             logger.info("Alignment model loaded. Aligning...")
             result = whisperx.align(
                 raw_segments, model_a, metadata, audio, device,
@@ -147,6 +173,7 @@ def transcribe(path: Path, device: str, compute_type: str, hf_token: str) -> str
     logger.info("Loading diarization pipeline...")
     try:
         diarize_model = DiarizationPipeline(token=hf_token, device=device)
+        _log_device("DiarizationPipeline", device)
         logger.info("Diarization pipeline loaded. Running diarization...")
         diarize_segments = diarize_model(audio)
         logger.info("Diarization complete. Assigning speakers...")
