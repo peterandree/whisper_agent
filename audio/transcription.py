@@ -27,6 +27,8 @@ def _log_device(label: str, device: str) -> None:
     """Log whether a model is actually using the GPU or silently fell back to CPU."""
     if device != "cuda":
         logger.info(f"{label} running on CPU.")
+        # Print a red warning to the console if CUDA was requested but running on CPU
+        print(f"\033[91m[WARNING] {label} is running on CPU, not CUDA! Check your CUDA setup.\033[0m")
         return
     allocated = torch.cuda.memory_allocated() / 1024 ** 3
     reserved  = torch.cuda.memory_reserved()  / 1024 ** 3
@@ -36,6 +38,8 @@ def _log_device(label: str, device: str) -> None:
             "Model may have silently fallen back to CPU. "
             "Check that no other process holds the CUDA context."
         )
+        # Print a red warning to the console if CUDA fallback is detected
+        print(f"\033[91m[WARNING] {label} may have silently fallen back to CPU! VRAM allocated: {allocated:.2f} GB. Check your CUDA setup.\033[0m")
     else:
         logger.info(
             f"{label} running on GPU. "
@@ -74,12 +78,6 @@ def _cleanup_gpu(label: str) -> None:
 
 
 def transcribe(path: Path, device: str, compute_type: str, hf_token: str) -> str:
-        # Get total duration for progress tracking
-        total_duration = get_audio_duration(audio_path)
-        if total_duration > 0:
-            logger.info(f"Total audio duration: {format_seconds(total_duration)} ({total_duration:.1f} seconds)")
-        else:
-            logger.warning("Could not determine total audio duration. Progress percentage will not be shown.")
     start_time = datetime.datetime.now()
     logger.info(f"Transcription pipeline started at {start_time:%Y-%m-%d %H:%M:%S}")
     _log_device("Startup", device)
@@ -102,6 +100,31 @@ def transcribe(path: Path, device: str, compute_type: str, hf_token: str) -> str
     Returns:
         Formatted transcript string with speaker labels and timestamps.
     """
+
+    # Preprocessing: Denoise (anlmdn) and trim silences using ffmpeg
+    trimmed_path = None
+    try:
+        with tempfile.NamedTemporaryFile(suffix=path.suffix, delete=False) as tmp:
+            trimmed_path = Path(tmp.name)
+        ffmpeg_cmd = [
+            "ffmpeg", "-y", "-i", str(path),
+            "-af", "anlmdn,silenceremove=1:0:-50dB",
+            str(trimmed_path)
+        ]
+        logger.info(f"Denoising (anlmdn) and trimming silences with ffmpeg: {' '.join(ffmpeg_cmd)}")
+        subprocess.run(ffmpeg_cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        logger.info(f"Denoising and silence trimming complete. Using processed file: {trimmed_path}")
+        audio_path = trimmed_path
+    except Exception as e:
+        logger.error(f"Audio preprocessing with ffmpeg failed: {e}\nCheck that ffmpeg is installed and the input file is a valid audio file. Using original file.")
+        audio_path = path
+
+    # Get total duration for progress tracking
+    total_duration = get_audio_duration(audio_path)
+    if total_duration > 0:
+        logger.info(f"Total audio duration: {format_seconds(total_duration)} ({total_duration:.1f} seconds)")
+    else:
+        logger.warning("Could not determine total audio duration. Progress percentage will not be shown.")
 
     # Preprocessing: Denoise (anlmdn) and trim silences using ffmpeg
     try:
@@ -144,7 +167,7 @@ def transcribe(path: Path, device: str, compute_type: str, hf_token: str) -> str
         raise
 
     # Clean up temporary trimmed file
-    if audio_path != path:
+    if audio_path != path and trimmed_path is not None:
         try:
             trimmed_path.unlink()
             logger.info(f"Deleted temporary trimmed file: {trimmed_path}")
