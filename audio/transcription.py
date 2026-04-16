@@ -1,3 +1,5 @@
+import subprocess
+import tempfile
 import gc
 import torch
 import whisperx
@@ -33,15 +35,39 @@ def transcribe(path: Path, device: str, compute_type: str, hf_token: str) -> str
         Formatted transcript string with speaker labels and timestamps.
     """
 
+    # Preprocessing: Denoise (anlmdn) and trim silences using ffmpeg
+    with tempfile.NamedTemporaryFile(suffix=path.suffix, delete=False) as tmp:
+        trimmed_path = Path(tmp.name)
+    ffmpeg_cmd = [
+        "ffmpeg", "-y", "-i", str(path),
+        "-af", "anlmdn,silenceremove=1:0:-50dB",
+        str(trimmed_path)
+    ]
+    logger.info(f"Denoising (anlmdn) and trimming silences with ffmpeg: {' '.join(ffmpeg_cmd)}")
+    try:
+        subprocess.run(ffmpeg_cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        logger.info(f"Denoising and silence trimming complete. Using processed file: {trimmed_path}")
+        audio_path = trimmed_path
+    except Exception as e:
+        logger.error(f"Denoising/silence trimming failed, using original file: {e}")
+        audio_path = path
+
     # Phase 0: Language detection
-    language = detect_language(path, device)
+    language = detect_language(audio_path, device)
     align_model_name = select_align_model(language)
     skip_alignment = align_model_name == "SKIP"
 
     # Load full audio for transcription and alignment
-    logger.info(f"Loading audio: {path.name}")
-    audio = whisperx.load_audio(str(path))
+    logger.info(f"Loading audio: {audio_path.name}")
+    audio = whisperx.load_audio(str(audio_path))
     logger.info(f"Audio loaded. Samples: {audio.shape[0]}, Duration: {audio.shape[0] / 16000:.1f}s")
+    # Clean up temporary trimmed file if used
+    if audio_path != path:
+        try:
+            trimmed_path.unlink()
+            logger.info(f"Deleted temporary trimmed file: {trimmed_path}")
+        except Exception as e:
+            logger.warning(f"Could not delete temporary trimmed file: {e}")
 
     # Phase 1: Transcription
     logger.info("Loading WhisperModel (large-v3-turbo)...")
