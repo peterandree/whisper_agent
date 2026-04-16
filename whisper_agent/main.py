@@ -33,22 +33,37 @@ def process(path: Path, hf_token: str) -> None:
     """
     logging.info(f"Processing: {path.name}")
     try:
+        logging.info("Starting transcription...")
         transcript = transcribe(path, DEVICE, COMPUTE_TYPE, hf_token)
-        logging.info(f"Transcript generated. Length: {len(transcript)} chars")
+
+        logging.info(f"Transcription complete. Length: {len(transcript)} chars. Starting summarization...")
+        logging.info(f"Transcript type: {type(transcript)}, length: {len(transcript)}")
+        logging.info(f"Transcript sample: {transcript[:200]!r}")
 
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
         stem = f"{path.stem}_{ts}"
 
         transcript_file = OUTPUT_DIR / (stem + ".transcript.txt")
-        transcript_file.write_text(transcript, encoding="utf-8")
-        logging.info(f"Transcript written to: {transcript_file}")
+        logging.info(f"About to write transcript to: {transcript_file}")
+        try:
+            transcript_file.write_text(transcript, encoding="utf-8")
+            logging.info(f"Transcript written to: {transcript_file}")
+        except Exception as e:
+            logging.error(f"Failed to write transcript file: {e}")
+            raise
 
+        logging.info("Sending transcript to Ollama for summarization. If this is the first request, model loading may take several minutes...")
         summary = summarize(transcript, OLLAMA_URL, OLLAMA_MODEL)
-        logging.info(f"Summary generated. Length: {len(summary)} chars")
+        logging.info(f"Summary generated. Length: {len(summary)} chars. Writing summary to disk...")
 
         out_file = OUTPUT_DIR / (stem + ".md")
-        out_file.write_text(summary, encoding="utf-8")
-        logging.info(f"Summary written to: {out_file}")
+        logging.info(f"About to write summary to: {out_file}")
+        try:
+            out_file.write_text(summary, encoding="utf-8")
+            logging.info(f"Summary written to: {out_file}")
+        except Exception as e:
+            logging.error(f"Failed to write summary file: {e}")
+            raise
     except Exception as e:
         import traceback
         logging.error(f"Failed to process {path.name}: {e}")

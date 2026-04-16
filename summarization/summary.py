@@ -11,6 +11,7 @@ logger = logging.getLogger(__name__)
 MAX_RETRIES = 3
 RETRY_BACKOFF = [2, 5, 15]  # seconds
 
+_ollama_first_request = True
 def _call_ollama(prompt: str, ollama_url: str, ollama_model: str) -> str:
     """
     Call the Ollama API to generate a summary or merge summaries.
@@ -31,10 +32,17 @@ def _call_ollama(prompt: str, ollama_url: str, ollama_model: str) -> str:
             "num_ctx": 16384
         }
     }
+    global _ollama_first_request
     for attempt, wait in enumerate(RETRY_BACKOFF, start=1):
         try:
-            response = requests.post(ollama_url, json=payload, timeout=OLLAMA_TIMEOUT)
+            # Use a longer timeout for the very first request (model load)
+            timeout = OLLAMA_TIMEOUT
+            if _ollama_first_request:
+                timeout = max(OLLAMA_TIMEOUT, 1200)  # 20 minutes or config, whichever is higher
+                logger.info(f"First Ollama request: using extended timeout of {timeout} seconds for possible model load.")
+            response = requests.post(ollama_url, json=payload, timeout=timeout)
             response.raise_for_status()
+            _ollama_first_request = False
             return response.json()["response"]
         except requests.RequestException as e:
             if attempt == MAX_RETRIES:
