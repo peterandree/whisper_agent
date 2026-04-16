@@ -1,3 +1,7 @@
+import warnings
+warnings.filterwarnings("ignore", message="torchcodec is not installed correctly")
+warnings.filterwarnings("ignore", category=UserWarning, module="pyannote")
+
 import os
 import sys
 import shutil
@@ -9,9 +13,6 @@ from config.settings import OUTPUT_DIR, OLLAMA_URL, OLLAMA_MODEL, DEVICE, COMPUT
 from audio.transcription import transcribe
 from summarization.summary import summarize
 from watcher.watcher import start_watcher
-
-warnings.filterwarnings("ignore", message="torchcodec is not installed correctly")
-warnings.filterwarnings("ignore", category=UserWarning, module="pyannote")
 
 _ffmpeg_exe = shutil.which("ffmpeg")
 if _ffmpeg_exe:

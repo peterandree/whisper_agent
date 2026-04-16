@@ -2,86 +2,107 @@ import gc
 import torch
 import whisperx
 import logging
+import traceback
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 from faster_whisper import WhisperModel
 from whisperx.diarize import DiarizationPipeline
+from audio.language_detection import detect_language
+from audio.model_selector import select_align_model
 
 logger = logging.getLogger(__name__)
 
-def transcribe(
-    path: Path, device: str, compute_type: str, hf_token: str
-) -> str:
+
+def transcribe(path: Path, device: str, compute_type: str, hf_token: str) -> str:
     """
-    Transcribe an audio file, align word-level timestamps, and perform speaker diarization.
+    Transcribe an audio file, align word-level timestamps, and perform
+    speaker diarization.
+
+    Phase 0: Fast language detection via tiny model (first 30s only).
+    Phase 1: Full transcription via large-v3-turbo.
+    Phase 2: Word-level timestamp alignment (skipped if no model for language).
+    Phase 3: Speaker diarization.
 
     Args:
-        path (Path): Path to the audio file.
-        device (str): Device to use ('cpu' or 'cuda').
-        compute_type (str): Compute type for model ('float32' or 'float16').
-        hf_token (str): HuggingFace token for diarization model.
+        path: Path to the audio file.
+        device: 'cuda' or 'cpu'.
+        compute_type: 'float16' (cuda) or 'float32' (cpu).
+        hf_token: HuggingFace token for the diarization model.
 
     Returns:
-        str: Formatted transcript with speaker changes.
+        Formatted transcript string with speaker labels and timestamps.
     """
-    logger.info(f"Loading audio from: {path}")
-    audio = whisperx.load_audio(str(path))
-    logger.info(f"Audio loaded. Type: {type(audio)}, Length: {getattr(audio, 'shape', 'unknown')}")
 
-    # Phase 1: Streaming transcription via faster-whisper generator
-    logger.info("Loading WhisperModel...")
+    # Phase 0: Language detection
+    language = detect_language(path, device)
+    align_model_name = select_align_model(language)
+    skip_alignment = align_model_name == "SKIP"
+
+    # Load full audio for transcription and alignment
+    logger.info(f"Loading audio: {path.name}")
+    audio = whisperx.load_audio(str(path))
+    logger.info(f"Audio loaded. Samples: {audio.shape[0]}, Duration: {audio.shape[0] / 16000:.1f}s")
+
+    # Phase 1: Transcription
+    logger.info("Loading WhisperModel (large-v3-turbo)...")
     fw_model = WhisperModel("large-v3-turbo", device=device, compute_type=compute_type)
-    logger.info("WhisperModel loaded.")
-    segments_generator, info = fw_model.transcribe(audio, beam_size=5)
-    logger.info(f"Detected language: {info.language}")
+    logger.info("WhisperModel loaded. Starting transcription...")
+
+    segments_generator, info = fw_model.transcribe(
+        audio, beam_size=5, language=language
+    )
 
     raw_segments: List[Dict[str, Any]] = []
     for seg in segments_generator:
         logger.info(f"[{seg.start:6.1f}s -> {seg.end:6.1f}s] {seg.text.strip()}")
         raw_segments.append({"start": seg.start, "end": seg.end, "text": seg.text})
 
-    logger.debug(f"Transcription complete. Segments: {len(raw_segments)}")
-    del fw_model; gc.collect(); torch.cuda.empty_cache()
-    logger.debug("WhisperModel deleted and GPU cache cleared.")
+    logger.info(f"Transcription complete. Segments: {len(raw_segments)}")
+    del fw_model
+    gc.collect()
+    torch.cuda.empty_cache()
 
-    # Phase 2: Align word-level timestamps
-    logger.info(f"Aligning timestamps... (segments: {len(raw_segments)}, audio type: {type(audio)}, device: {device})")
-    try:
-        logger.info("Loading alignment model...")
-        model_a, metadata = whisperx.load_align_model(
-            language_code=info.language, device=device
-        )
-        logger.info("Alignment model loaded.")
-        result = whisperx.align(
-            raw_segments, model_a, metadata, audio, device,
-            return_char_alignments=False
-        )
-        logger.info("Alignment complete.")
-        del model_a; gc.collect(); torch.cuda.empty_cache()
-        logger.debug("Align model deleted and GPU cache cleared.")
-    except Exception as e:
-        logger.error(f"Alignment failed: {e}")
-        import traceback
-        traceback.print_exc()
-        raise
+    # Phase 2: Alignment
+    if skip_alignment:
+        logger.warning("Skipping alignment — using raw segment timestamps.")
+        result: Dict[str, Any] = {"segments": raw_segments}
+    else:
+        logger.info(f"Aligning timestamps for {len(raw_segments)} segments...")
+        try:
+            model_a, metadata = whisperx.load_align_model(
+                language_code=language,
+                device=device,
+                model_name=align_model_name,
+            )
+            logger.info("Alignment model loaded.")
+            result = whisperx.align(
+                raw_segments, model_a, metadata, audio, device,
+                return_char_alignments=False,
+            )
+            logger.info("Alignment complete.")
+            del model_a
+            gc.collect()
+            torch.cuda.empty_cache()
+        except Exception as e:
+            logger.error(f"Alignment failed: {e}")
+            traceback.print_exc()
+            raise
 
-    # Phase 3: Diarize
-    logger.info("Running speaker diarization...")
+    # Phase 3: Diarization
+    logger.info("Loading diarization pipeline...")
     try:
-        logger.info("Loading diarization pipeline...")
         diarize_model = DiarizationPipeline(token=hf_token, device=device)
-        logger.info("Diarization pipeline loaded.")
+        logger.info("Diarization pipeline loaded. Running diarization...")
         diarize_segments = diarize_model(audio)
-        logger.info("Diarization complete.")
+        logger.info("Diarization complete. Assigning speakers...")
         result = whisperx.assign_word_speakers(diarize_segments, result)
-        logger.debug("Speaker assignment complete.")
+        logger.info("Speaker assignment complete.")
     except Exception as e:
         logger.error(f"Diarization failed: {e}")
-        import traceback
         traceback.print_exc()
         raise
 
-    # Format with speaker-change paragraphs
+    # Format output with speaker-change paragraphs
     lines: List[str] = []
     current_speaker: Optional[str] = None
     current_text: List[str] = []

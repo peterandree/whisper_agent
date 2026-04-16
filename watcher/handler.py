@@ -1,3 +1,11 @@
+def _normalize_src_path(src_path) -> str:
+    if isinstance(src_path, str):
+        return src_path
+    if isinstance(src_path, (bytes, bytearray)):
+        return src_path.decode()
+    if isinstance(src_path, memoryview):
+        return src_path.tobytes().decode()
+    raise TypeError(f"Unsupported src_path type: {type(src_path)}")
 import time
 import logging
 from pathlib import Path
@@ -52,7 +60,8 @@ class AudioHandler(FileSystemEventHandler):
     def on_created(self, event: FileSystemEvent) -> None:
         if event.is_directory:
             return
-        path = Path(event.src_path)
+        src = _normalize_src_path(event.src_path)
+        path = Path(src)
         if path.suffix.lower() not in AUDIO_EXTENSIONS:
             return
         logger.info(f"Detected new audio file: {path.name}")
