@@ -1,11 +1,25 @@
 
-
+from pathlib import Path
 import time
 import logging
-from pathlib import Path
 from typing import Callable
 from watchdog.events import FileSystemEventHandler, FileSystemEvent
 from config.settings import AUDIO_EXTENSIONS
+
+def _wait_until_unlocked(path: Path, timeout: int = 300) -> None:
+    """
+    Wait until the file can be opened for exclusive access (Windows).
+    """
+    start = time.time()
+    while True:
+        try:
+            with open(path, 'rb+') as f:
+                pass
+            return
+        except (OSError, PermissionError):
+            if time.time() - start > timeout:
+                raise TimeoutError(f"File {path} is still locked after {timeout} seconds.")
+            time.sleep(1)
 
 logger = logging.getLogger(__name__)
 
@@ -54,4 +68,6 @@ class AudioHandler(FileSystemEventHandler):
         logger.info(f"Detected new audio file: {path}")
         # Wait for OBS to finish writing (wait for file size to stabilize)
         _wait_until_stable(path)
+        # Wait until file is unlocked (copy finished)
+        _wait_until_unlocked(path)
         self.process(path)
