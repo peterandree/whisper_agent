@@ -39,7 +39,7 @@ def check_gpu_ready(min_free_gb: float = 2.0) -> bool:
         except Exception as e:
             logger.warning(f"Could not query nvidia-smi: {e}")
     # Check CUDA version
-    torch_cuda_version = torch.version.cuda
+    torch_cuda_version = getattr(getattr(torch, "version", None), "cuda", None)  # type: ignore[attr-defined]
     try:
         nvcc = subprocess.check_output(["nvcc", "--version"], encoding="utf-8") if shutil.which("nvcc") else None
     except Exception:

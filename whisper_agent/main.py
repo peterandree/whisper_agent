@@ -13,7 +13,7 @@ import torch
 from datetime import datetime
 from pathlib import Path
 from config.settings import OUTPUT_DIR, OLLAMA_URL, OLLAMA_MODEL, DEVICE, COMPUTE_TYPE
-from audio.transcription import transcribe
+from audio.transcription_runner import transcribe_in_subprocess as transcribe
 from summarization.summary import summarize
 from watcher.watcher import start_watcher
 
@@ -77,30 +77,14 @@ def _start_ollama() -> None:
 # ---------------------------------------------------------------------------
 
 def _initialize_cuda() -> None:
-    """
-    Force PyTorch to claim the CUDA context at startup rather than lazily.
-    If another process (e.g. a stale Ollama instance) already owns the context
-    exclusively, this fails loudly here with a clear message instead of causing
-    a silent crash deep inside a model load later.
-    """
     if not torch.cuda.is_available():
-        logger.warning("CUDA not available — running on CPU.")
+        logger.warning("CUDA not available — workers will run on CPU.")
         return
-    try:
-        torch.cuda.set_device(0)
-        torch.zeros(1).cuda()
-        props = torch.cuda.get_device_properties(0)
-        logger.info(
-            f"CUDA context initialized. "
-            f"Device: {props.name}, "
-            f"VRAM: {props.total_memory / 1024 ** 3:.1f} GB"
-        )
-    except Exception as e:
-        raise RuntimeError(
-            f"Failed to initialize CUDA context: {e}\n"
-            "Another process may own the GPU exclusively. "
-            "Check nvidia-smi for competing processes."
-        ) from e
+    props = torch.cuda.get_device_properties(0)
+    logger.info(
+        f"GPU available: {props.name}, "
+        f"VRAM: {props.total_memory / 1024 ** 3:.1f} GB"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -137,7 +121,7 @@ def process(path: Path, hf_token: str) -> None:
     transcript: str | None = None
     try:
         logger.info("Starting transcription...")
-        transcript = transcribe(path, DEVICE, COMPUTE_TYPE, hf_token)
+        transcript = transcribe(path, hf_token, DEVICE, COMPUTE_TYPE)
         logger.info(
             f"Transcription complete. "
             f"Length: {len(transcript)} chars."
