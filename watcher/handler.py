@@ -1,73 +1,63 @@
-
-from pathlib import Path
 import time
 import logging
+from pathlib import Path
 from typing import Callable
 from watchdog.events import FileSystemEventHandler, FileSystemEvent
 from config.settings import AUDIO_EXTENSIONS
 
-def _wait_until_unlocked(path: Path, timeout: int = 300) -> None:
-    """
-    Wait until the file can be opened for exclusive access (Windows).
-    """
-    start = time.time()
-    while True:
-        try:
-            with open(path, 'rb+') as f:
-                pass
-            return
-        except (OSError, PermissionError):
-            if time.time() - start > timeout:
-                raise TimeoutError(f"File {path} is still locked after {timeout} seconds.")
-            time.sleep(1)
-
 logger = logging.getLogger(__name__)
 
-
-def _wait_until_stable(path: Path, interval: float = 0.5, stable_count: int = 4) -> None:
-    """
-    Wait until the file size is stable for several consecutive checks.
-    """
+def _wait_until_stable(path: Path, interval: float = 1.0, stable_count: int = 5) -> None:
+    """Poll file size until it stops growing for stable_count consecutive checks."""
     last_size = -1
     stable = 0
     while stable < stable_count:
-        size = path.stat().st_size
-        if size == last_size:
+        try:
+            size = path.stat().st_size
+        except FileNotFoundError:
+            stable = 0
+            last_size = -1
+            time.sleep(interval)
+            continue
+        if size == last_size and size > 0:
             stable += 1
         else:
             stable = 0
         last_size = size
         time.sleep(interval)
+    logger.info(f"File stable at {last_size} bytes: {path.name}")
+
+
+def _wait_until_readable(path: Path, max_attempts: int = 10, interval: float = 1.0) -> bool:
+    """Try to open the file exclusively to confirm the OS has released the write lock."""
+    for attempt in range(max_attempts):
+        try:
+            with open(path, "rb"):
+                return True
+        except (PermissionError, OSError):
+            logger.debug(f"File not yet readable (attempt {attempt + 1}/{max_attempts}): {path.name}")
+            time.sleep(interval)
+    logger.error(f"File never became readable: {path.name}")
+    return False
+
 
 class AudioHandler(FileSystemEventHandler):
     """
     Handles file creation events for audio files and triggers processing.
     """
     def __init__(self, process_func: Callable[[Path], None]) -> None:
-        """
-        Initialize the handler.
-
-        Args:
-            process_func (Callable[[Path], None]): Function to process audio files.
-        """
         super().__init__()
         self.process = process_func
 
     def on_created(self, event: FileSystemEvent) -> None:
-        """
-        Handle the creation of a new file. If it's an audio file, process it.
-
-        Args:
-            event (FileSystemEvent): The file system event.
-        """
         if event.is_directory:
             return
         path = Path(event.src_path)
         if path.suffix.lower() not in AUDIO_EXTENSIONS:
             return
-        logger.info(f"Detected new audio file: {path}")
-        # Wait for OBS to finish writing (wait for file size to stabilize)
+        logger.info(f"Detected new audio file: {path.name}")
         _wait_until_stable(path)
-        # Wait until file is unlocked (copy finished)
-        _wait_until_unlocked(path)
+        if not _wait_until_readable(path):
+            logger.error(f"Skipping {path.name} — file could not be opened for reading.")
+            return
         self.process(path)
