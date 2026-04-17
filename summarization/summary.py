@@ -1,3 +1,4 @@
+import json
 import requests
 import logging
 import time
@@ -22,9 +23,6 @@ SHORT_PROMPT = (
 
 
 def _resolve_model(ollama_url: str, configured_model: str) -> str:
-    """
-    Return the configured model (no selection logic implemented).
-    """
     return configured_model
 
 
@@ -35,13 +33,12 @@ def _call_ollama(
 ) -> str:
     global _ollama_first_request
 
-    # Dynamic context sizing — avoid allocating 16K KV cache for short prompts
     estimated_tokens = max(2048, min(16384, int(len(prompt) / 3.5)))
 
     payload = {
-        "model": ollama_model,
+        "model":  ollama_model,
         "prompt": prompt,
-        "stream": False,
+        "stream": True,
         "options": {
             "num_ctx": estimated_tokens,
         },
@@ -56,10 +53,27 @@ def _call_ollama(
                     f"First Ollama request: using extended timeout of {timeout}s "
                     f"(model: {ollama_model}, ctx: {estimated_tokens} tokens)."
                 )
-            response = requests.post(ollama_url, json=payload, timeout=timeout)
+
+            response = requests.post(
+                ollama_url, json=payload, timeout=timeout, stream=True
+            )
             response.raise_for_status()
             _ollama_first_request = False
-            return response.json()["response"]
+
+            parts: list[str] = []
+            for line in response.iter_lines():
+                if not line:
+                    continue
+                chunk = json.loads(line)
+                token = chunk.get("response", "")
+                if token:
+                    parts.append(token)
+                    print(token, end="", flush=True)
+                if chunk.get("done"):
+                    break
+            print()  # newline after stream ends
+            return "".join(parts)
+
         except requests.exceptions.ConnectionError:
             raise RuntimeError(
                 f"Cannot connect to Ollama at {ollama_url}. "
