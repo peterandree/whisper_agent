@@ -61,17 +61,3 @@ def cleanup_gpu(label: str) -> None:
         f"VRAM after {label}: {allocated:.2f} GB allocated, "
         f"{reserved:.2f} GB reserved."
     )
-
-
-def gpu_info() -> dict:
-    """
-    Return basic GPU info for startup logging.
-    Returns empty dict if CUDA is not available.
-    """
-    if not torch.cuda.is_available():
-        return {}
-    props = torch.cuda.get_device_properties(0)
-    return {
-        "name": props.name,
-        "total_vram_gb": round(props.total_memory / 1024 ** 3, 1),
-    }
