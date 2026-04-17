@@ -20,10 +20,11 @@ def transcribe(path: Path, device: str, compute_type: str, hf_token: str) -> str
     """
     Full transcription pipeline:
       Preprocessing → Language detection → Transcription →
-      Alignment → Diarization → Formatting
+      [WhisperModel unloaded] → Alignment → Diarization → Formatting
 
-    Intended to run inside a worker process that exits via os._exit(0)
-    to avoid CTranslate2/WDDM destructor crashes on Windows.
+    Intended to run inside a worker process that exits via os._exit(0).
+    WhisperModel is explicitly freed before diarization to prevent VRAM
+    exhaustion on long recordings (0xC0000409 crash on Windows WDDM).
     """
     start_time = datetime.datetime.now()
     logger.info(f"Transcription pipeline started at {start_time:%Y-%m-%d %H:%M:%S}")
@@ -44,8 +45,10 @@ def transcribe(path: Path, device: str, compute_type: str, hf_token: str) -> str
 
     # Phase 1: Transcription
     t1 = datetime.datetime.now()
-    raw_segments = run_transcription(audio, language, device, compute_type, total_duration)
+    raw_segments, fw_model = run_transcription(audio, language, device, compute_type, total_duration)
     logger.info(f"Phase 1 (transcription) took {(datetime.datetime.now() - t1).total_seconds():.2f}s")
+
+    del fw_model  # ensure no reference survives into Phase 2/3
 
     # Phase 2: Alignment
     t2 = datetime.datetime.now()

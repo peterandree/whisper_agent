@@ -31,12 +31,12 @@ def run_transcription(
     device: str,
     compute_type: str,
     total_duration: float,
-) -> list[dict]:
+) -> tuple[list[dict], WhisperModel]:
     """
     Load WhisperModel and transcribe audio.
-    Returns raw segment list. Does NOT delete the model — the worker
-    process exits via os._exit(0) which skips all destructors, avoiding
-    the 0xC0000409 stack corruption crash on Windows WDDM.
+    Returns (raw_segment_list, model_ref).
+    Model ref is intentionally kept alive — os._exit(0) discards it
+    without invoking destructors.
     """
     logger.info("Loading WhisperModel (large-v3-turbo)...")
     fw_model = WhisperModel("large-v3-turbo", device=device, compute_type=compute_type)
@@ -60,4 +60,4 @@ def run_transcription(
         raw_segments.append({"start": seg.start, "end": seg.end, "text": seg.text})
 
     logger.info(f"Transcription complete. Segments: {len(raw_segments)}")
-    return raw_segments
+    return raw_segments, fw_model
