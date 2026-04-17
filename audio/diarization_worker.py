@@ -45,9 +45,38 @@ if __name__ == "__main__":
     audio = load_audio(audio_path_processed)
     cleanup_temp_audio(audio_path, audio_path_processed)
 
-    result = run_diarization(audio, result, hf_token, device)
+    result, diarize_segments = run_diarization(audio, result, hf_token, device)
 
     transcript = format_transcript(result["segments"], total_duration)
     output_file.write_text(transcript, encoding="utf-8")
+
+    # --- Pending registration ---
+    # Collect any speaker labels that were not resolved to a known name.
+    # Write a pending file so the user can assign names after the fact
+    # without blocking summarization.
+    unresolved: set[str] = set()
+    for seg in result.get("segments", []):
+        label = seg.get("speaker", "")
+        if label.startswith("SPEAKER_"):
+            unresolved.add(label)
+
+    if unresolved and diarize_segments is not None:
+        speaker_turns: dict[str, list[dict]] = {}
+        for _, row in diarize_segments.iterrows():
+            label = row["speaker"]
+            if label in unresolved:
+                speaker_turns.setdefault(label, []).append(
+                    {"start": float(row["start"]), "end": float(row["end"])}
+                )
+        pending = {
+            "audio_file":    str(audio_path),
+            "speaker_turns": speaker_turns,
+        }
+        pending_file = output_file.with_suffix(".pending_speakers.json")
+        pending_file.write_text(json.dumps(pending, indent=2), encoding="utf-8")
+        logging.getLogger(__name__).info(
+            f"{len(unresolved)} unresolved speaker(s). "
+            f"Run: python -m audio.register_speaker assign --pending \"{pending_file}\""
+        )
 
     os._exit(0)

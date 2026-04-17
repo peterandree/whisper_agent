@@ -199,6 +199,18 @@ def process(path: Path, hf_token: str) -> None:
         logger.error(f"Summarization failed for {path.name}: {e}")
         traceback.print_exc()
 
+    # Hint for unresolved speakers
+    pending_file = OUTPUT_DIR / (stem + ".pending_speakers.json")
+    if pending_file.exists():
+        logger.info(
+            f"─────────────────────────────────────────────────────────────\n"
+            f"  {len(__import__('json').loads(pending_file.read_text()).get('speaker_turns', {}))} unresolved speaker(s) identified in this recording.\n"
+            f"  To assign names and improve future recognition, run:\n"
+            f"\n"
+            f"    python -m audio.register_speaker assign --pending \"{pending_file}\"\n"
+            f"─────────────────────────────────────────────────────────────"
+        )
+
 
 # ---------------------------------------------------------------------------
 # Entry point

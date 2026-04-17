@@ -3,6 +3,9 @@ Worker process: preprocessing, language detection, transcription, alignment.
 Writes aligned segments as JSON to a temp file, then exits via os._exit(0)
 to avoid CTranslate2/WDDM destructor crash.
 """
+import warnings
+warnings.filterwarnings("ignore", message="Some weights of Wav2Vec2ForCTC were not initialized")
+
 import sys
 import os
 import json

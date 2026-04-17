@@ -14,3 +14,4 @@ OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "mistral:7b")
 AUDIO_EXTENSIONS = {".wav", ".mp3", ".mp4", ".mkv", ".m4a", ".flac"}
 OLLAMA_TIMEOUT = int(os.environ.get("OLLAMA_TIMEOUT", "600"))
 
+SPEAKER_DB_PATH = Path(os.environ.get("SPEAKER_DB_PATH", "C:/data/meetings/speakers.db"))
