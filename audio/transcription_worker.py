@@ -4,7 +4,7 @@ then exits — letting the OS release all CUDA/CTranslate2 resources cleanly
 instead of manually tearing down models inside a long-lived parent process.
 """
 import sys
-import json
+import os
 import logging
 from pathlib import Path
 
@@ -25,4 +25,8 @@ if __name__ == "__main__":
     from audio.transcription import transcribe
     transcript = transcribe(path, device, compute_type, hf_token)
     output_file.write_text(transcript, encoding="utf-8")
-    sys.exit(0)
+    # os._exit() bypasses all Python atexit handlers, __del__ methods,
+    # and C++ destructors (CTranslate2, CUDA driver teardown).
+    # This prevents the 0xC0000409 stack corruption crash that occurs
+    # when CTranslate2 tears down its CUDA context on Windows WDDM.
+    os._exit(0)

@@ -1,9 +1,7 @@
 from audio.audio_utils import get_audio_duration, format_seconds
 from audio.gpu_check import check_gpu_ready
-import shutil
 import datetime
 import os
-os.environ["PYTORCH_NO_CUDA_MEMORY_CACHING"] = "1"
 os.environ["CUDA_MODULE_LOADING"] = "LAZY"
 
 import subprocess
@@ -201,10 +199,6 @@ def transcribe(path: Path, device: str, compute_type: str, hf_token: str) -> str
         logger.info(f"Transcription complete. Segments: {len(raw_segments)}")
         logger.info(f"Segment collection done. VRAM allocated before deleting WhisperModel: "
                     f"{torch.cuda.memory_allocated() / 1024 ** 3:.2f} GB")
-
-        # CTranslate2 owns its own CUDA streams — do NOT call torch.cuda.synchronize()
-        del fw_model
-        logger.info("WhisperModel released.")
 
     except RuntimeError as e:
         if "CUDA out of memory" in str(e):
